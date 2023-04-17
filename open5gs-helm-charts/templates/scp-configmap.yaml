@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-scp-config
+  labels:
+    epc-mode: scp
+data:
+  scp.yaml: |
+    logger:
+        file: /var/log/open5gs/scp.log
+    
+    db_uri: mongodb://{{ .Release.Name }}-mongodb-svc/open5gs
+
+    scp:
+      sbi:
+        - dev: eth0
+          port: 443
+          advertise: {{ .Release.Name }}-scp.{{ .Release.Namespace }}.svc.cluster.local
+    nrf:
+     sbi:
+       - addr:
+           - {{ .Release.Name }}-nrf.{{ .Release.Namespace }}.svc.cluster.local
+         port: 443
+    sbi:
+        server:
+          cacert: /var/run/autocert.step.sm/root.crt
+          key: /var/run/autocert.step.sm/site.key
+          cert: /var/run/autocert.step.sm/site.crt
+        client:
+          cacert: /var/run/autocert.step.sm/root.crt
+          key: /var/run/autocert.step.sm/site.key
+          cert: /var/run/autocert.step.sm/site.crt

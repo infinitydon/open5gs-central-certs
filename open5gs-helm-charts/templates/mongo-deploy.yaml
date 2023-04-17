@@ -1,0 +1,62 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-mongodb-svc
+spec:
+  ports:
+  - port: 27017
+  selector:
+    app: open5gs-mongodb
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-mongodb
+spec:
+  selector:
+    matchLabels:
+      app: open5gs-mongodb
+  template:
+    metadata:
+      labels:
+        app: open5gs-mongodb
+    spec:
+      containers:
+      - image: "{{ .Values.mongodb.image.repository }}:{{ .Values.mongodb.image.tag }}" #free5gmano/nextepc-mongodb
+        imagePullPolicy: {{ .Values.mongodb.image.pullPolicy }}
+        name: open5gs-mongodb
+        ports:
+        - containerPort: 27017
+          name: mongodb
+        volumeMounts:
+        - name: mongodb-persistent-storage
+          mountPath: /data/db
+      volumes:
+      - name: mongodb-persistent-storage
+        persistentVolumeClaim:
+          claimName: {{ .Release.Name }}-mongodb-pv-claim
+---
+kind: PersistentVolume
+apiVersion: v1
+metadata:
+  name: {{ .Release.Name }}-mongodb-pv-volume
+  labels:
+    type: local
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/mnt/"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-mongodb-pv-claim
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

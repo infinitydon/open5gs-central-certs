@@ -1,0 +1,710 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-ue-provisioning
+  labels:
+    epc-mode: ue-import
+data:
+  account.js: |
+    db = db.getSiblingDB('open5gs')
+    cursor = db.accounts.find()
+    if ( cursor.count() == 0 ) {
+        db.accounts.insert({ salt: 'f5c15fa72622d62b6b790aa8569b9339729801ab8bda5d13997b5db6bfc1d997', hash: '402223057db5194899d2e082aeb0802f6794622e1cbc47529c419e5a603f2cc592074b4f3323b239ffa594c8b756d5c70a4e1f6ecd3f9f0d2d7328c4cf8b1b766514effff0350a90b89e21eac54cd4497a169c0c7554a0e2cd9b672e5414c323f76b8559bc768cba11cad2ea3ae704fb36abc8abc2619231ff84ded60063c6e1554a9777a4a464ef9cfdfa90ecfdacc9844e0e3b2f91b59d9ff024aec4ea1f51b703a31cda9afb1cc2c719a09cee4f9852ba3cf9f07159b1ccf8133924f74df770b1a391c19e8d67ffdcbbef4084a3277e93f55ac60d80338172b2a7b3f29cfe8a36738681794f7ccbe9bc98f8cdeded02f8a4cd0d4b54e1d6ba3d11792ee0ae8801213691848e9c5338e39485816bb0f734b775ac89f454ef90992003511aa8cceed58a3ac2c3814f14afaaed39cbaf4e2719d7213f81665564eec02f60ede838212555873ef742f6666cc66883dcb8281715d5c762fb236d72b770257e7e8d86c122bb69028a34cf1ed93bb973b440fa89a23604cd3fefe85fbd7f55c9b71acf6ad167228c79513f5cfe899a2e2cc498feb6d2d2f07354a17ba74cecfbda3e87d57b147e17dcc7f4c52b802a8e77f28d255a6712dcdc1519e6ac9ec593270bfcf4c395e2531a271a841b1adefb8516a07136b0de47c7fd534601b16f0f7a98f1dbd31795feb97da59e1d23c08461cf37d6f2877d0f2e437f07e25015960f63', username: 'admin', roles: [ 'admin' ], "__v" : 0})
+    }
+  open5gs-dbctl: |
+    #!/bin/bash
+
+    version=0.10.1
+
+    display_help() {
+      echo "open5gs-dbctl: Open5GS Database Configuration Tool ($version)"
+      echo "FLAGS: --db_uri=mongodb://localhost"
+      echo "COMMANDS:" >&2
+      echo "   add {imsi key opc}: adds a user to the database with default values"
+      echo "   add {imsi ip key opc}: adds a user to the database with default values and a IPv4 address for the UE"
+      echo "   addT1 {imsi key opc}: adds a user to the database with 3 differents apns"
+      echo "   addT1 {imsi ip key opc}: adds a user to the database with 3 differents apns and the same IPv4 address for the each apn"
+      echo "   remove {imsi}: removes a user from the database"
+      echo "   reset: WIPES OUT the database and restores it to an empty default"
+      echo "   static_ip {imsi ip4}: adds a static IP assignment to an already-existing user"
+      echo "   static_ip6 {imsi ip6}: adds a static IPv6 assignment to an already-existing user"
+      echo "   type {imsi type}: changes the PDN-Type of the first PDN: 0 = IPv4, 1 = IPv6, 2 = IPv4v6, 3 = v4 OR v6"
+      echo "   help: displays this message and exits"
+      echo "   default values are as follows: APN \"internet\", dl_bw/ul_bw 1 Gbps, PGW address is 127.0.0.3, IPv4 only"
+      echo "   add_ue_with_apn {imsi key opc apn}: adds a user to the database with a specific apn,"
+      echo "   add_ue_with_slice {imsi key opc apn sst sd}: adds a user to the database with a specific apn, sst and sd"
+      echo "   update_apn {imsi apn slice_num}: adds an APN to the slice number slice_num of an existent UE"
+      echo "   update_slice {imsi apn sst sd}: adds an slice to an existent UE"
+      echo "   showall: shows the list of subscriber in the db"
+      echo "   showpretty: shows the list of subscriber in the db in a pretty json tree format"
+      echo "   showfiltered: shows {imsi key opc apn ip} information of subscriber"
+
+
+    }
+
+    #while test $# -gt 0; do
+    #  case "$1" in
+    #    --db_uri*)
+    #      DB_URI=`echo $1 | sed -e 's/^[^=]*=//g'`
+    #      shift
+    #      ;;
+    #    *)
+    #      break
+    #      ;;
+    #  esac
+    #done
+
+    DB_URI="${DB_URI:-mongodb://localhost/open5gs}"
+
+    if [ "$#" -lt 1 ]; then
+      display_help
+      exit 1
+    fi
+
+    if [ "$1" = "help" ]; then
+      display_help
+      exit 1
+    fi
+
+    if [ "$1" = "add" ]; then
+      if [ "$#" -eq 4 ]; then
+          IMSI=$2
+          KI=$3
+          OPC=$4
+
+          mongo --quiet --eval "db.subscribers.update( { \"imsi\" : \"$IMSI\" },
+              { \$setOnInsert:
+                  {
+                      \"imsi\" : \"$IMSI\",
+                      \"subscribed_rau_tau_timer\" : NumberInt(12),
+                      \"network_access_mode\" : NumberInt(0),
+                      \"subscriber_status\" : NumberInt(0),
+                      \"access_restriction_data\" : NumberInt(32),
+                      \"slice\" :
+                      [{
+                          \"sst\" : NumberInt(1),
+                          \"default_indicator\" : true,
+                          \"_id\" : new ObjectId(),
+                          \"session\" :
+                          [{
+                              \"name\" : \"internet\",
+                              \"type\" : NumberInt(3),
+                              \"_id\" : new ObjectId(),
+                              \"pcc_rule\" : [],
+                              \"ambr\" :
+                              {
+                                  \"uplink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3) },
+                                  \"downlink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3) },
+                              },
+                              \"qos\" :
+                              {
+                                  \"index\" : NumberInt(9),
+                                  \"arp\" :
+                                  {
+                                      \"priority_level\" : NumberInt(8),
+                                      \"pre_emption_capability\" : NumberInt(1),
+                                      \"pre_emption_vulnerability\" : NumberInt(1),
+                                  },
+                              },
+                          }],
+                      }],
+                      \"ambr\" :
+                      {
+                          \"uplink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3),},
+                          \"downlink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3) },
+                      },
+                      \"security\" :
+                      {
+                          \"k\" : \"$KI\",
+                          \"amf\" : \"8000\",
+                          \"op\" : null,
+                          \"opc\" : \"$OPC\"
+                      },
+                      \"__v\" : 0
+                  },
+              },
+              upsert=true);" $DB_URI
+          exit $?
+      fi
+
+      if [ "$#" -eq 5 ]; then
+          IMSI=$2
+          IP=$3
+          KI=$4
+          OPC=$5
+
+          mongo --quiet --eval "db.subscribers.update( { \"imsi\" : \"$IMSI\" },
+              { \$setOnInsert:
+                  {
+                      \"imsi\" : \"$IMSI\",
+                      \"subscribed_rau_tau_timer\" : NumberInt(12),
+                      \"network_access_mode\" : NumberInt(0),
+                      \"subscriber_status\" : NumberInt(0),
+                      \"access_restriction_data\" : NumberInt(32),
+                      \"slice\" :
+                      [{
+                          \"sst\" : NumberInt(1),
+                          \"default_indicator\" : true,
+                          \"_id\" : new ObjectId(),
+                          \"session\" :
+                          [{
+                              \"name\" : \"internet\",
+                              \"type\" : NumberInt(3),
+                              \"_id\" : new ObjectId(),
+                              \"pcc_rule\" : [],
+                              \"ue\" :
+                              {
+                                  \"addr\" : \"$IP\",
+                              },
+                              \"ambr\" :
+                              {
+                                  \"uplink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3) },
+                                  \"downlink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3) },
+                              },
+                              \"qos\" :
+                              {
+                                  \"index\" : NumberInt(9),
+                                  \"arp\" :
+                                  {
+                                      \"priority_level\" : NumberInt(8),
+                                      \"pre_emption_capability\" : NumberInt(1),
+                                      \"pre_emption_vulnerability\" : NumberInt(1),
+                                  },
+                              },
+                          }],
+                      }],
+                      \"ambr\" :
+                      {
+                          \"uplink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3),},
+                          \"downlink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3) },
+                      },
+                      \"security\" :
+                      {
+                          \"k\" : \"$KI\",
+                          \"amf\" : \"8000\",
+                          \"op\" : null,
+                          \"opc\" : \"$OPC\"
+                      },
+                      \"__v\" : 0
+                  },
+              },
+              upsert=true);" $DB_URI
+          exit $?
+      fi
+
+      echo "open5gs-dbctl: incorrect number of args, format is \"open5gs-dbctl add imsi key opc\""
+      exit 1
+    fi
+
+    if [ "$1" = "addT1" ]; then
+      if [ "$#" -eq 4 ]; then
+          IMSI=$2
+          KI=$3
+          OPC=$4
+
+          mongo --quiet --eval "db.subscribers.update( { \"imsi\" : \"$IMSI\" },
+              { \$setOnInsert:
+                  {
+                      \"imsi\" : \"$IMSI\",
+                      \"subscribed_rau_tau_timer\" : NumberInt(12),
+                      \"network_access_mode\" : NumberInt(0),
+                      \"subscriber_status\" : NumberInt(0),
+                      \"access_restriction_data\" : NumberInt(32),
+                      \"slice\" :
+                      [{
+                          \"sst\" : NumberInt(1),
+                          \"default_indicator\" : true,
+                          \"_id\" : new ObjectId(),
+                          \"session\" :
+                          [{
+                              \"name\" : \"internet\",
+                              \"type\" : NumberInt(3),
+                              \"_id\" : new ObjectId(),
+                              \"pcc_rule\" : [],
+                              \"ambr\" :
+                              {
+                                  \"uplink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3) },
+                                  \"downlink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3) },
+                              },
+                              \"qos\" :
+                              {
+                                  \"index\" : NumberInt(9),
+                                  \"arp\" :
+                                  {
+                                      \"priority_level\" : NumberInt(8),
+                                      \"pre_emption_capability\" : NumberInt(1),
+                                      \"pre_emption_vulnerability\" : NumberInt(1),
+                                  },
+                              },
+                          },{
+                              \"name\" : \"internet1\",
+                              \"type\" : NumberInt(3),
+                              \"_id\" : new ObjectId(),
+                              \"pcc_rule\" : [],
+                              \"ambr\" :
+                              {
+                                  \"uplink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3) },
+                                  \"downlink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3) },
+                              },
+                              \"qos\" :
+                              {
+                                  \"index\" : NumberInt(9),
+                                  \"arp\" :
+                                  {
+                                      \"priority_level\" : NumberInt(8),
+                                      \"pre_emption_capability\" : NumberInt(1),
+                                      \"pre_emption_vulnerability\" : NumberInt(1),
+                                  },
+                              },
+                          },{
+                              \"name\" : \"internet2\",
+                              \"type\" : NumberInt(3),
+                              \"_id\" : new ObjectId(),
+                              \"pcc_rule\" : [],
+                              \"ambr\" :
+                              {
+                                  \"uplink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3) },
+                                  \"downlink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3) },
+                              },
+                              \"qos\" :
+                              {
+                                  \"index\" : NumberInt(9),
+                                  \"arp\" :
+                                  {
+                                      \"priority_level\" : NumberInt(8),
+                                      \"pre_emption_capability\" : NumberInt(1),
+                                      \"pre_emption_vulnerability\" : NumberInt(1),
+                                  },
+                              },
+                          }],
+                      }],
+                      \"ambr\" :
+                      {
+                          \"uplink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3),},
+                          \"downlink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3) },
+                      },
+                      \"security\" :
+                      {
+                          \"k\" : \"$KI\",
+                          \"amf\" : \"8000\",
+                          \"op\" : null,
+                          \"opc\" : \"$OPC\"
+                      },
+                      \"__v\" : 0
+                  },
+              },
+              upsert=true);" $DB_URI
+          exit $?
+      fi
+
+      if [ "$#" -eq 5 ]; then
+          IMSI=$2
+          IP=$3
+          KI=$4
+          OPC=$5
+
+          mongo --quiet --eval "db.subscribers.update( { \"imsi\" : \"$IMSI\" },
+              { \$setOnInsert:
+                  {
+                      \"imsi\" : \"$IMSI\",
+                      \"subscribed_rau_tau_timer\" : NumberInt(12),
+                      \"network_access_mode\" : NumberInt(0),
+                      \"subscriber_status\" : NumberInt(0),
+                      \"access_restriction_data\" : NumberInt(32),
+                      \"slice\" :
+                      [{
+                          \"sst\" : NumberInt(1),
+                          \"default_indicator\" : true,
+                          \"_id\" : new ObjectId(),
+                          \"session\" :
+                          [{
+                              \"name\" : \"internet\",
+                              \"type\" : NumberInt(3),
+                              \"_id\" : new ObjectId(),
+                              \"pcc_rule\" : [],
+                              \"ue\" :
+                              {
+                                  \"addr\" : \"$IP\",
+                              },
+                              \"ambr\" :
+                              {
+                                  \"uplink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3) },
+                                  \"downlink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3) },
+                              },
+                              \"qos\" :
+                              {
+                                  \"index\" : NumberInt(9),
+                                  \"arp\" :
+                                  {
+                                      \"priority_level\" : NumberInt(8),
+                                      \"pre_emption_capability\" : NumberInt(1),
+                                      \"pre_emption_vulnerability\" : NumberInt(1),
+                                  },
+                              },
+                          },{
+                              \"name\" : \"internet1\",
+                              \"type\" : NumberInt(3),
+                              \"_id\" : new ObjectId(),
+                              \"pcc_rule\" : [],
+                              \"ue\" :
+                              {
+                                  \"addr\" : \"$IP\",
+                              },
+                              \"ambr\" :
+                              {
+                                  \"uplink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3) },
+                                  \"downlink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3) },
+                              },
+                              \"qos\" :
+                              {
+                                  \"index\" : NumberInt(9),
+                                  \"arp\" :
+                                  {
+                                      \"priority_level\" : NumberInt(8),
+                                      \"pre_emption_capability\" : NumberInt(1),
+                                      \"pre_emption_vulnerability\" : NumberInt(1),
+                                  },
+                              },
+                          },{
+                              \"name\" : \"internet2\",
+                              \"type\" : NumberInt(3),
+                              \"_id\" : new ObjectId(),
+                              \"pcc_rule\" : [],
+                              \"ue\" :
+                              {
+                                  \"addr\" : \"$IP\",
+                              },
+                              \"ambr\" :
+                              {
+                                  \"uplink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3) },
+                                  \"downlink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3) },
+                              },
+                              \"qos\" :
+                              {
+                                  \"index\" : NumberInt(9),
+                                  \"arp\" :
+                                  {
+                                      \"priority_level\" : NumberInt(8),
+                                      \"pre_emption_capability\" : NumberInt(1),
+                                      \"pre_emption_vulnerability\" : NumberInt(1),
+                                  },
+                              },
+                          }],
+                      }],
+                      \"ambr\" :
+                      {
+                          \"uplink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3),},
+                          \"downlink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3) },
+                      },
+                      \"security\" :
+                      {
+                          \"k\" : \"$KI\",
+                          \"amf\" : \"8000\",
+                          \"op\" : null,
+                          \"opc\" : \"$OPC\"
+                      },
+                      \"__v\" : 0
+                  },
+              },
+              upsert=true);" $DB_URI
+          exit $?
+      fi
+
+      echo "open5gs-dbctl: incorrect number of args, format is \"open5gs-dbctl add imsi key opc\""
+      exit 1
+    fi
+
+    if [ "$1" = "remove" ]; then
+      if [ "$#" -ne 2 ]; then
+          echo "open5gs-dbctl: incorrect number of args, format is \"open5gs-dbctl remove imsi\""
+          exit 1
+      fi
+
+      IMSI=$2
+      mongo --quiet --eval "db.subscribers.remove({\"imsi\": \"$IMSI\"});" $DB_URI
+      exit $?
+    fi
+
+    if [ "$1" = "reset" ]; then
+      if [ "$#" -ne 1 ]; then
+          echo "open5gs-dbctl: incorrect number of args, format is \"open5gs-dbctl reset\""
+          exit 1
+      fi
+
+      mongo --quiet --eval "db.subscribers.remove({});" $DB_URI
+      exit $?
+    fi
+
+    if [ "$1" = "static_ip" ]; then
+      if [ "$#" -ne 3 ]; then
+          echo "open5gs-dbctl: incorrect number of args, format is \"open5gs-dbctl static_ip imsi ip\""
+          exit 1
+      fi
+      IMSI=$2
+      IP=$3
+
+      mongo --quiet --eval "db.subscribers.update({\"imsi\": \"$IMSI\"},{\$set: { \"slice.0.session.0.ue.addr\": \"$IP\" }});" $DB_URI
+      exit $?
+    fi
+
+    if [ "$1" = "static_ip6" ]; then
+      if [ "$#" -ne 3 ]; then
+          echo "open5gs-dbctl: incorrect number of args, format is \"open5gs-dbctl static_ip6 imsi ip\""
+          exit 1
+      fi
+      IMSI=$2
+      IP=$3
+
+      mongo --eval "db.subscribers.update({\"imsi\": \"$IMSI\"},{\$set: { \"slice.0.session.0.ue.addr6\": \"$IP\" }});" $DB_URI
+      exit $?
+    fi
+
+    if [ "$1" = "type" ]; then
+      if [ "$#" -ne 3 ]; then
+          echo "open5gs-dbctl: incorrect number of args, format is \"open5gs-dbctl type imsi type\""
+          exit 1
+      fi
+      IMSI=$2
+      TYPE=$3
+
+      mongo --quiet --eval "db.subscribers.update({\"imsi\": \"$IMSI\"},{\$set: { \"slice.0.session.0.type\": NumberInt($TYPE) }});" $DB_URI
+      exit $?
+    fi
+
+    if [ "$1" = "add_ue_with_apn" ]; then
+      if [ "$#" -eq 5 ]; then
+          IMSI=$2
+          KI=$3
+          OPC=$4
+          APN=$5
+
+          mongo --quiet --eval "db.subscribers.update( { \"imsi\" : \"$IMSI\" },
+              { \$setOnInsert:
+                  {
+                      \"imsi\" : \"$IMSI\",
+                      \"subscribed_rau_tau_timer\" : NumberInt(12),
+                      \"network_access_mode\" : NumberInt(0),
+                      \"subscriber_status\" : NumberInt(0),
+                      \"access_restriction_data\" : NumberInt(32),
+                      \"slice\" :
+                      [{
+                          \"sst\" : NumberInt(1),
+                          \"default_indicator\" : true,
+                          \"_id\" : new ObjectId(),
+                          \"session\" :
+                          [{
+                              \"name\" : \"$APN\",
+                              \"type\" : NumberInt(3),
+                              \"_id\" : new ObjectId(),
+                              \"pcc_rule\" : [],
+                              \"ambr\" :
+                              {
+                                  \"uplink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3) },
+                                  \"downlink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3) },
+                              },
+                              \"qos\" :
+                              {
+                                  \"index\" : NumberInt(9),
+                                  \"arp\" :
+                                  {
+                                      \"priority_level\" : NumberInt(8),
+                                      \"pre_emption_capability\" : NumberInt(1),
+                                      \"pre_emption_vulnerability\" : NumberInt(1),
+                                  },
+                              },
+                          }],
+                      }],
+                      \"ambr\" :
+                      {
+                          \"uplink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3),},
+                          \"downlink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3) },
+                      },
+                      \"security\" :
+                      {
+                          \"k\" : \"$KI\",
+                          \"amf\" : \"8000\",
+                          \"op\" : null,
+                          \"opc\" : \"$OPC\"
+                      },
+                      \"__v\" : 0
+                  },
+              },
+              upsert=true);" $DB_URI
+          exit $?
+      fi
+
+      echo "open5gs-dbctl: incorrect number of args, format is \"open5gs-dbctl add_ue_with_apn imsi key opc apn\""
+      exit 1
+    fi
+
+    if [ "$1" = "add_ue_with_slice" ]; then
+      if [ "$#" -eq 7 ]; then
+          IMSI=$2
+          KI=$3
+          OPC=$4
+          APN=$5
+          SST=$6
+          SD=$7
+
+          mongo --quiet --eval "db.subscribers.update( { \"imsi\" : \"$IMSI\" },
+              { \$setOnInsert:
+                  {
+                      \"imsi\" : \"$IMSI\",
+                      \"subscribed_rau_tau_timer\" : NumberInt(12),
+                      \"network_access_mode\" : NumberInt(0),
+                      \"subscriber_status\" : NumberInt(0),
+                      \"access_restriction_data\" : NumberInt(32),
+                      \"slice\" :
+                      [{
+                          \"sst\" : NumberInt($SST),
+                          \"sd\" : \"$SD\",
+                          \"default_indicator\" : true,
+                          \"_id\" : new ObjectId(),
+                          \"session\" :
+                          [{
+                              \"name\" : \"$APN\",
+                              \"type\" : NumberInt(3),
+                              \"_id\" : new ObjectId(),
+                              \"pcc_rule\" : [],
+                              \"ambr\" :
+                              {
+                                  \"uplink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3) },
+                                  \"downlink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3) },
+                              },
+                              \"qos\" :
+                              {
+                                  \"index\" : NumberInt(9),
+                                  \"arp\" :
+                                  {
+                                      \"priority_level\" : NumberInt(8),
+                                      \"pre_emption_capability\" : NumberInt(1),
+                                      \"pre_emption_vulnerability\" : NumberInt(1),
+                                  },
+                              },
+                          }],
+                      }],
+                      \"ambr\" :
+                      {
+                          \"uplink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3),},
+                          \"downlink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3) },
+                      },
+                      \"security\" :
+                      {
+                          \"k\" : \"$KI\",
+                          \"amf\" : \"8000\",
+                          \"op\" : null,
+                          \"opc\" : \"$OPC\"
+                      },
+                      \"__v\" : 0
+                  },
+              },
+              upsert=true);" $DB_URI
+          exit $?
+      fi
+
+      echo "open5gs-dbctl: incorrect number of args, format is \"open5gs-dbctl add_ue_with_slice imsi key opc apn sst sd\""
+      exit 1
+    fi
+
+    if [ "$1" = "update_apn" ]; then
+      if [ "$#" -eq 4 ]; then
+          IMSI=$2
+          APN=$3
+          SLICE_NUM=$4
+
+          mongo --quiet --eval "db.subscribers.updateOne({ \"imsi\": \"$IMSI\"},
+              {\$push: { \"slice.$SLICE_NUM.session\":
+                              {
+                              \"name\" : \"$APN\",
+                              \"type\" : NumberInt(3),
+                              \"_id\" : new ObjectId(),
+                              \"pcc_rule\" : [],
+                              \"ambr\" :
+                              {
+                                  \"uplink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3) },
+                                  \"downlink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3) },
+                              },
+                              \"qos\" :
+                              {
+                                  \"index\" : NumberInt(9),
+                                  \"arp\" :
+                                  {
+                                      \"priority_level\" : NumberInt(8),
+                                      \"pre_emption_capability\" : NumberInt(1),
+                                      \"pre_emption_vulnerability\" : NumberInt(1),
+                                  },
+                              },
+                              }
+                      }
+              });" $DB_URI
+          exit $?
+      fi
+
+      echo "open5gs-dbctl: incorrect number of args, format is \"open5gs-dbctl update_apn imsi apn num_slice\""
+      exit 1
+    fi
+
+    if [ "$1" = "update_slice" ]; then
+      if [ "$#" -eq 5 ]; then
+          IMSI=$2
+          APN=$3
+          SST=$4
+          SD=$5
+
+          mongo --eval "db.subscribers.updateOne({ \"imsi\": \"$IMSI\"},
+              {\$push: { \"slice\":
+
+                              {
+                              \"sst\" : NumberInt($SST),
+                              \"sd\" : \"$SD\",
+                              \"default_indicator\" : false,
+                              \"_id\" : new ObjectId(),
+                              \"session\" :
+                              [{
+                                  \"name\" : \"$APN\",
+                                  \"type\" : NumberInt(3),
+                                  \"_id\" : new ObjectId(),
+                                  \"pcc_rule\" : [],
+                                  \"ambr\" :
+                                  {
+                                      \"uplink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3) },
+                                      \"downlink\" : { \"value\": NumberInt(1), \"unit\" : NumberInt(3) },
+                                  },
+                                  \"qos\" :
+                                  {
+                                      \"index\" : NumberInt(9),
+                                      \"arp\" :
+                                      {
+                                          \"priority_level\" : NumberInt(8),
+                                          \"pre_emption_capability\" : NumberInt(1),
+                                          \"pre_emption_vulnerability\" : NumberInt(1),
+                                      },
+                                  },
+                                }]
+                              }
+
+                      }
+              });" $DB_URI
+          exit $?
+      fi
+
+      echo "open5gs-dbctl: incorrect number of args, format is \"open5gs-dbctl update_slice imsi apn sst sd\""
+      exit 1
+    fi
+    if [ "$1" = "showall" ]; then
+      mongo --quiet --eval "db.subscribers.find()" $DB_URI
+          exit $?
+    fi
+    if [ "$1" = "showpretty" ]; then
+      mongo --quiet --eval "db.subscribers.find({},{_id:0}).pretty().toArray()" $DB_URI
+          exit $?
+    fi
+    if [ "$1" = "showfiltered" ]; then
+      mongo --quiet --eval "db.subscribers.find({},{'_id':0,'imsi':1,'security.k':1, 'security.opc':1,'slice.session.name':1,'slice.session.ue.addr':1})" $DB_URI
+          exit $?
+    fi
+      echo "open5gs-dbctl: incorrect number of args, format is \"open5gs-dbctl add imsi key opc\""
+      exit 1
+    fi
+
+    display_help

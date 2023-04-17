@@ -1,0 +1,60 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-scp
+  labels:
+    epc-mode: scp
+spec:
+  selector:
+    epc-mode: scp
+  ports:
+    - protocol: TCP
+      port: 443 
+      targetPort: 443  
+---  
+apiVersion: apps/v1 # for versions before 1.9.0 use apps/v1beta2
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-scp-deployment 
+  labels:
+    epc-mode: scp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      epc-mode: scp
+  template:
+    metadata:
+      annotations:
+        autocert.step.sm/name: {{ .Release.Name }}-scp.{{ .Release.Namespace }}.svc.cluster.local
+        autocert.step.sm/duration: {{ .Values.certificate.duration }}    
+      labels:
+        epc-mode: scp
+    spec:
+      serviceAccountName: {{ .Release.Name }}-k8s-wait-for
+      initContainers:     
+      - name: wait-for-nrf
+        image: "{{ .Values.k8swait.repository }}:{{ .Values.k8swait.tag }}"
+        imagePullPolicy: {{ .Values.k8swait.pullPolicy }}
+        args:
+          - "pod"
+          - "-lepc-mode=nrf"
+      - name: wait-for-mongo
+        image: "{{ .Values.k8swait.repository }}:{{ .Values.k8swait.tag }}"
+        imagePullPolicy: {{ .Values.k8swait.pullPolicy }}
+        args:
+          - "pod"
+          - "-lapp=open5gs-mongodb"              
+      containers:
+        - name: scp
+          image: "{{ .Values.open5gs.image.repository }}:{{ .Values.open5gs.image.tag }}"
+          imagePullPolicy: {{ .Values.open5gs.image.pullPolicy }}
+          command: ["open5gs-scpd", "-c", "/open5gs/config-map/scp.yaml"]
+          volumeMounts:
+          - name: {{ .Release.Name }}-scp-config
+            mountPath: /open5gs/config-map/scp.yaml
+            subPath: "scp.yaml"   
+      volumes:
+        - name: {{ .Release.Name }}-scp-config
+          configMap:
+            name: {{ .Release.Name }}-scp-config

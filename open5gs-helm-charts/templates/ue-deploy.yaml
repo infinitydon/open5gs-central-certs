@@ -1,0 +1,46 @@
+apiVersion: apps/v1 # for versions before 1.9.0 use apps/v1beta2
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-ueransim-ue
+  labels:
+    app: ueransim-ue
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ueransim-ue
+  template:
+    metadata:  
+      labels:
+        mode: simulator
+        app: ueransim-ue
+    spec:
+      serviceAccountName: {{ .Release.Name }}-k8s-wait-for
+      initContainers:     
+      - name: wait-for-gnb
+        image: "{{ .Values.k8swait.repository }}:{{ .Values.k8swait.tag }}"
+        imagePullPolicy: {{ .Values.k8swait.pullPolicy }}
+        args:
+          - "pod"
+          - "-lapp=ueransim-gnb"                  
+      containers:
+      - name: ueransim-ue
+        image: "{{ .Values.ueransim.repository }}:{{ .Values.ueransim.tag }}"
+        imagePullPolicy: {{ .Values.ueransim.pullPolicy }}        
+        command: ["/bin/sh", "-c"]
+        args:
+        - cp -rf /tmp/ue.yaml /UERANSIM/build/open5gs-ue.yaml;
+          gnbIP=$(getent hosts {{ .Release.Name }}-gnb-svc | awk '{ print $1 }');
+          sed -i "s/gNBpodIP/$gnbIP/g" /UERANSIM/build/open5gs-ue.yaml;
+          sleep 15;
+          ./nr-ue -c open5gs-ue.yaml;
+        securityContext:
+          privileged: true        
+        volumeMounts:
+        - name: ueransim-ue-config
+          mountPath: /tmp/ue.yaml
+          subPath: open5gs-ue.yaml
+      volumes:
+        - name: ueransim-ue-config
+          configMap:
+            name: {{ .Release.Name }}-ueransim-config

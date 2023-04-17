@@ -1,0 +1,69 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-amf-config
+  labels:
+    epc-mode: amf
+data:
+  amf.yaml: |
+    logger:
+        file: /var/log/open5gs/amf.log
+        #level: debug
+        #domain: sbi
+
+    amf:
+        sbi:
+        - dev: eth0
+          port: 443
+          advertise: {{ .Release.Name }}-amf.{{ .Release.Namespace }}.svc.cluster.local
+        discovery:
+           delegated: no            
+        ngap:
+          dev: {{ .Values.k8s.interface }}
+        metrics:
+          - addr: 0.0.0.0
+            port: 9091          
+        guami:
+          - plmn_id:
+              mcc: {{ .Values.amf.mcc }}
+              mnc: {{ .Values.amf.mnc }}
+            amf_id:
+              region: 2
+              set: 1
+        tai:
+          - plmn_id:
+              mcc: {{ .Values.amf.mcc }}
+              mnc: {{ .Values.amf.mnc }}
+            tac: {{ .Values.amf.tac }}
+        plmn_support:
+        - plmn_id:
+            mcc: {{ .Values.amf.mcc }}
+            mnc: {{ .Values.amf.mnc }}
+          s_nssai:
+          - sst: 1
+            sd: 1
+        security:
+            integrity_order : [ NIA2, NIA1, NIA0 ]
+            ciphering_order : [ NEA0, NEA1, NEA2 ]
+        network_name:
+            full: Open5GS
+        amf_name: open5gs-amf
+    sbi:
+        server:
+          cacert: /var/run/autocert.step.sm/root.crt
+          key: /var/run/autocert.step.sm/site.key
+          cert: /var/run/autocert.step.sm/site.crt
+        client:
+          cacert: /var/run/autocert.step.sm/root.crt
+          key: /var/run/autocert.step.sm/site.key
+          cert: /var/run/autocert.step.sm/site.crt
+    scp:
+     sbi:
+       - addr:
+           - {{ .Release.Name }}-scp.{{ .Release.Namespace }}.svc.cluster.local
+         port: 443
+    nrf:
+     sbi:
+       - addr:
+           - {{ .Release.Name }}-nrf.{{ .Release.Namespace }}.svc.cluster.local
+         port: 443          

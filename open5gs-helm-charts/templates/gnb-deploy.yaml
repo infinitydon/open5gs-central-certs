@@ -1,0 +1,68 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-gnb-svc
+  labels:
+    app: ueransim-gnb
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: gnb-sctp
+      port: 38412
+      targetPort: 38412
+      protocol: SCTP
+  selector:
+    app: ueransim-gnb
+---
+apiVersion: apps/v1 # for versions before 1.9.0 use apps/v1beta2
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-ueransim-gnb  
+  labels:
+    app: ueransim-gnb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ueransim-gnb
+  template:
+    metadata:  
+      labels:
+        mode: simulator
+        app: ueransim-gnb
+    spec:
+      serviceAccountName: {{ .Release.Name }}-k8s-wait-for
+      initContainers:    
+      - name: wait-for-amf
+        image: "{{ .Values.k8swait.repository }}:{{ .Values.k8swait.tag }}"
+        imagePullPolicy: {{ .Values.k8swait.pullPolicy }}
+        args:
+          - "pod"
+          - "-lepc-mode=amf"         
+      containers:
+      - name: ueransim-gnb
+        image: "{{ .Values.ueransim.repository }}:{{ .Values.ueransim.tag }}"
+        imagePullPolicy: {{ .Values.ueransim.pullPolicy }}        
+        command: ["/bin/sh", "-c"]
+        args:
+        - sleep 10;
+          apt-get update && apt-get install iputils-ping iproute2 -y;
+          cp -rf /tmp/gnb.yaml /UERANSIM/build/open5gs-gnb.yaml;
+          sed -i "s/gnbLocalIP/$MY_POD_IP/g" /UERANSIM/build/open5gs-gnb.yaml;     
+          ./nr-gnb -c open5gs-gnb.yaml;
+        env:
+        - name: MY_POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP        
+        securityContext:
+          privileged: true        
+        volumeMounts:
+        - name: ueransim-gnb-config
+          mountPath: /tmp/gnb.yaml
+          subPath: open5gs-gnb.yaml              
+      volumes:
+        - name: ueransim-gnb-config
+          configMap:
+            name: {{ .Release.Name }}-ueransim-config

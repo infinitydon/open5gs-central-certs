@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-ue-import
+  labels:
+    epc-mode: ue-import
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      epc-mode: ue-import
+  template:
+    metadata:
+      labels:
+        epc-mode: ue-import  
+    spec:
+      serviceAccountName: {{ .Release.Name }}-k8s-wait-for
+      initContainers:      
+      - name: wait-for-mongo
+        image: "{{ .Values.k8swait.repository }}:{{ .Values.k8swait.tag }}"
+        imagePullPolicy: {{ .Values.k8swait.pullPolicy }}
+        args:
+          - "pod"
+          - "-lapp=open5gs-mongodb"    
+      containers:      
+      - name: mongo
+        image: "{{ .Values.mongodb.image.repository }}:{{ .Values.mongodb.image.tag }}"
+        command: ["/bin/sh", "-c"]
+        env:
+        - name: DB_URI
+          value: mongodb://{{ .Release.Name }}-mongodb-svc/open5gs
+        args:
+        - mongo mongodb://{{ .Release.Name }}-mongodb-svc/open5gs /tmp/account.js;
+          cp -rf /tmp/open5gs-dbctl /usr/local/bin/open5gs-dbctl;
+          chmod +x /usr/local/bin/open5gs-dbctl;
+          open5gs-dbctl add {{ .Values.ue.imsi }} {{ .Values.ue.secKey }} {{ .Values.ue.op }};
+          sleep infinity;
+        volumeMounts:
+        - name: account-config
+          mountPath: /tmp/account.js
+          subPath: "account.js"
+        - name: db-script
+          mountPath: /tmp/open5gs-dbctl
+          subPath: "open5gs-dbctl"        
+      volumes:
+        - name: account-config
+          configMap:
+            name: {{ .Release.Name }}-ue-provisioning
+        - name: db-script
+          configMap:
+            name: {{ .Release.Name }}-ue-provisioning
